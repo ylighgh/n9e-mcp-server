@@ -42,6 +42,13 @@ var stdioCmd = &cobra.Command{
 	RunE:  runStdio,
 }
 
+var httpCmd = &cobra.Command{
+	Use:   "http",
+	Short: "Run in HTTP mode (streamable transport, JSON only, no SSE)",
+	Long:  "Run the MCP server over HTTP. Uses MCP streamable transport with application/json request/response (no server-sent events).",
+	RunE:  runHTTP,
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
@@ -70,8 +77,17 @@ func init() {
 	viper.BindPFlag("read_only", rootCmd.PersistentFlags().Lookup("read-only"))
 	viper.BindPFlag("log_file", rootCmd.PersistentFlags().Lookup("log-file"))
 
+	// HTTP-specific flags
+	httpCmd.Flags().String("listen", ":8080", "Listen address (env: N9E_LISTEN)")
+	httpCmd.Flags().Duration("session-timeout", 0, "Idle session timeout (0 = no timeout, env: N9E_SESSION_TIMEOUT)")
+	httpCmd.Flags().Bool("shared", false, "Shared mode: require N9E_TOKEN and N9E_BASE_URL at startup, ignore client headers (env: N9E_SHARED)")
+	viper.BindPFlag("listen", httpCmd.Flags().Lookup("listen"))
+	viper.BindPFlag("session_timeout", httpCmd.Flags().Lookup("session-timeout"))
+	viper.BindPFlag("shared", httpCmd.Flags().Lookup("shared"))
+
 	// Add subcommands
 	rootCmd.AddCommand(stdioCmd)
+	rootCmd.AddCommand(httpCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -88,5 +104,29 @@ func runStdio(cmd *cobra.Command, args []string) error {
 		EnabledToolsets: viper.GetStringSlice("toolsets"),
 		ReadOnly:        viper.GetBool("read_only"),
 		LogFilePath:     viper.GetString("log_file"),
+	})
+}
+
+func runHTTP(cmd *cobra.Command, args []string) error {
+	shared := viper.GetBool("shared")
+	token := viper.GetString("token")
+	baseURL := viper.GetString("base_url")
+
+	if shared {
+		if token == "" || baseURL == "" {
+			return fmt.Errorf("when --shared is true, N9E_TOKEN and N9E_BASE_URL are required")
+		}
+	}
+
+	return internal.RunHTTPServer(internal.HTTPServerConfig{
+		Version:         version,
+		Token:           token,
+		BaseURL:         baseURL,
+		EnabledToolsets: viper.GetStringSlice("toolsets"),
+		ReadOnly:        viper.GetBool("read_only"),
+		LogFilePath:     viper.GetString("log_file"),
+		ListenAddr:      viper.GetString("listen"),
+		SessionTimeout:  viper.GetDuration("session_timeout"),
+		Shared:          shared,
 	})
 }

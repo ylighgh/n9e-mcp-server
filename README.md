@@ -38,7 +38,7 @@ An MCP (Model Context Protocol) server for [Nightingale](https://github.com/ccfo
 
 ### 2. Configure MCP Client
 
-#### Cursor
+#### Cursor (stdio mode, default)
 
 Add to your `~/.cursor/mcp.json`:
 
@@ -57,6 +57,66 @@ Add to your `~/.cursor/mcp.json`:
 }
 ```
 
+#### HTTP mode (optional)
+
+To run the server over HTTP (MCP streamable transport, JSON only, no SSE), start the server with the `http` subcommand.
+
+**Shared vs non-shared (HTTP only):**
+
+- **`--shared=false`** (default): Token and base URL may be omitted at startup. Each client can provide `X-User-Token` and `X-N9e-Base-Url` in mcp.json so everyone uses their own Nightingale identity or instance. If you do set `N9E_TOKEN` and `N9E_BASE_URL` at startup, they act as defaults and clients can still override via headers.
+- **`--shared=true`**: Startup **must** set `N9E_TOKEN` and `N9E_BASE_URL`. The server uses only this config; client headers `X-User-Token` and `X-N9e-Base-Url` are **ignored**. Use this when the MCP server is a shared org service and users must not override credentials.
+
+```bash
+# Non-shared: users supply token/URL in mcp.json (or you set defaults at startup)
+n9e-mcp-server http --listen :8080
+
+# Shared: one token/URL for all; require at startup, ignore client headers
+N9E_TOKEN=xxx N9E_BASE_URL=https://n9e.example.com n9e-mcp-server http --listen :8080 --shared
+```
+
+**Cursor: connect to HTTP server**
+
+If the server is already running in HTTP mode (e.g. on `http://localhost:8080`), add a URL-based entry to `~/.cursor/mcp.json` (no `command`/`args`; Cursor will use the streamable HTTP transport).
+
+**Token:** You can use either source; you do **not** need to pass token in mcp.json if the server was started with `N9E_TOKEN`.
+
+1. **Server startup only** – Set `N9E_TOKEN` when starting the server (e.g. `N9E_TOKEN=xxx ./n9e-mcp-server http`). All clients will use this token; no headers needed in Cursor.
+2. **Client headers (optional)** – The client can send:
+   - `X-User-Token`: use this token for N9e API calls instead of the startup token.
+   - `X-N9e-Base-Url`: use this URL as the Nightingale API base (e.g. `https://n9e.other-env.com`) instead of the server's `N9E_BASE_URL`.
+   So each user can point to a different Nightingale instance or use their own token (or both).
+
+Example when the server **was** started with `N9E_TOKEN` (no header needed in Cursor):
+
+```json
+{
+  "mcpServers": {
+    "nightingale": {
+      "url": "http://localhost:8080"
+    }
+  }
+}
+```
+
+Example when passing token and/or base URL from Cursor (e.g. shared server, or different Nightingale instance):
+
+```json
+{
+  "mcpServers": {
+    "nightingale": {
+      "url": "http://localhost:8080",
+      "headers": {
+        "X-User-Token": "your-nightingale-api-token",
+        "X-N9e-Base-Url": "http://your-n9e-server:17000"
+      }
+    }
+  }
+}
+```
+
+You can omit either header: only `X-User-Token`, or only `X-N9e-Base-Url`, or both. The server falls back to startup `N9E_TOKEN` and `N9E_BASE_URL` when a header is not set. **If the server was started with `--shared`**, these headers are ignored and you must not rely on them.
+
+If your HTTP server is behind a gateway that requires its own auth, add those headers as well (e.g. `Authorization: Bearer your-gateway-token`). The server uses the `X-User-Token` header only for calling the Nightingale API.
 #### Docker
 
 The official code uses the `stdio` protocol by default for inter-process communication. If you need to integrate with web-based LLM orchestration platforms like Dify or FastGPT that only support network calls (HTTP/SSE), we recommend using the provided Docker Compose solution. This deployment automatically introduces the `mcp-proxy` bridge to enable network protocol support.
@@ -138,6 +198,11 @@ Once configured, you can interact with Nightingale using natural language:
 
 ## Configuration
 
+### Modes
+
+- **stdio** (default): MCP over stdin/stdout. Use with Cursor and other clients that spawn the server process.
+- **http**: MCP over HTTP using the streamable transport (JSON request/response only, no SSE). Use `n9e-mcp-server http` and connect with a client that supports streamable HTTP (e.g. `StreamableClientTransport`).
+
 ### Environment Variables
 
 | Variable | Flag | Description | Default |
@@ -146,6 +211,8 @@ Once configured, you can interact with Nightingale using natural language:
 | `N9E_BASE_URL` | `--base-url` | Nightingale API base URL | `http://localhost:17000` |
 | `N9E_READ_ONLY` | `--read-only` | Disable write operations | `false` |
 | `N9E_TOOLSETS` | `--toolsets` | Enabled toolsets (comma-separated) | `all` |
+| `N9E_LISTEN` | `--listen` | HTTP mode: listen address | `:8080` |
+| `N9E_SESSION_TIMEOUT` | `--session-timeout` | HTTP mode: idle session timeout (0 = no timeout) | `0` |
 
 ### Toolsets
 

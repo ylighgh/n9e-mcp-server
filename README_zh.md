@@ -37,7 +37,7 @@
 
 ### 2.与 MCP 客户端配合使用
 
-#### Cursor
+#### Cursor（stdio 模式，默认）
 
 在 `~/.cursor/mcp.json` 中添加：
 
@@ -56,6 +56,66 @@
 }
 ```
 
+#### HTTP 模式（可选）
+
+以 HTTP 方式运行服务端（MCP streamable 传输，仅 JSON，无 SSE）时，使用 `http` 子命令启动。
+
+**共享模式 vs 非共享（仅 HTTP）：**
+
+- **`--shared=false`**（默认）：启动时可不提供 token 和 base URL。每个客户端在 mcp.json 里通过 `X-User-Token`、`X-N9e-Base-Url` 提供自己的夜莺身份或实例；若启动时设置了 `N9E_TOKEN` 和 `N9E_BASE_URL`，则作为默认值，客户端仍可通过 header 覆盖。
+- **`--shared=true`**：启动时**必须**设置 `N9E_TOKEN` 和 `N9E_BASE_URL`。服务端仅使用该配置，**忽略**客户端请求头中的 `X-User-Token` 和 `X-N9e-Base-Url`。适用于组织统一提供的 MCP 服务、不允许用户覆盖凭证的场景。
+
+```bash
+# 非共享：由用户在 mcp.json 提供 token/URL（或启动时设默认值）
+n9e-mcp-server http --listen :8080
+
+# 共享：统一凭证，启动时必填，忽略客户端 header
+N9E_TOKEN=xxx N9E_BASE_URL=https://n9e.example.com n9e-mcp-server http --listen :8080 --shared
+```
+
+**Cursor 连接 HTTP 服务端**
+
+若服务端已以 HTTP 模式运行（例如在 `http://localhost:8080`），在 `~/.cursor/mcp.json` 中添加以 URL 方式配置的条目（无需 `command`/`args`，Cursor 会使用 streamable HTTP 传输）。
+
+**Token 传递**：二选一即可，不必在 mcp.json 里传 token（只要服务端启动时配了 `N9E_TOKEN`）。
+
+1. **仅服务端启动时**：启动时设置 `N9E_TOKEN`（如 `N9E_TOKEN=xxx ./n9e-mcp-server http`），所有连接该服务的客户端都会用这个 token，Cursor 里**无需**配置任何 header。
+2. **客户端请求头（可选）**：可携带：
+   - `X-User-Token`：用该 token 调夜莺 API，替代启动时的 `N9E_TOKEN`；
+   - `X-N9e-Base-Url`：用该 URL 作为夜莺 API 地址（如 `https://n9e.other-env.com`），替代服务端启动时的 `N9E_BASE_URL`。
+   这样每人可使用自己的 token 或指向不同夜莺环境（或同时覆盖两者）。
+
+若服务端**已用** `N9E_TOKEN` 启动（Cursor 里不必写 header）：
+
+```json
+{
+  "mcpServers": {
+    "nightingale": {
+      "url": "http://localhost:8080"
+    }
+  }
+}
+```
+
+若由 Cursor 通过请求头传 token 和/或夜莺地址（例如服务未设 `N9E_TOKEN`、或连到不同夜莺环境时）：
+
+```json
+{
+  "mcpServers": {
+    "nightingale": {
+      "url": "http://localhost:8080",
+      "headers": {
+        "X-User-Token": "你的夜莺-api-token",
+        "X-N9e-Base-Url": "http://your-n9e-server:17000"
+      }
+    }
+  }
+}
+```
+
+可只写其中一个 header；未写的项会使用服务端启动时的 `N9E_TOKEN` / `N9E_BASE_URL`。**若服务端以 `--shared` 启动，则这些 header 会被忽略，请勿依赖。**
+
+若 MCP 服务前还有网关等需要认证，可同时配置对应 headers（如 `Authorization: Bearer your-gateway-token`）。服务端仅用 `X-User-Token` 作为调用夜莺 API 的凭证。
 #### Docker
 
 官方代码默认采用 `stdio` 协议进行进程间通信。若需要对接 Dify、FastGPT 等仅支持网络调用 (HTTP/SSE) 的大模型编排平台，推荐使用我们提供的 Docker Compose 方案。底层将自动引入 `mcp-proxy` 桥接器实现网络协议支持。
@@ -137,6 +197,11 @@
 
 ## 配置
 
+### 运行模式
+
+- **stdio**（默认）：通过 stdin/stdout 进行 MCP 通信。适用于 Cursor 等会拉起服务进程的客户端。
+- **http**：通过 HTTP 使用 MCP streamable 传输（仅 JSON 请求/响应，无 SSE）。使用 `n9e-mcp-server http` 启动，客户端需支持 streamable HTTP（如 `StreamableClientTransport`）。
+
 ### 环境变量
 
 | 变量 | 命令行参数 | 说明 | 默认值 |
@@ -145,6 +210,9 @@
 | `N9E_BASE_URL` | `--base-url` | 夜莺 API 地址 | `http://localhost:17000` |
 | `N9E_READ_ONLY` | `--read-only` | 禁用写操作 | `false` |
 | `N9E_TOOLSETS` | `--toolsets` | 启用的工具集（逗号分隔） | `all` |
+| `N9E_LISTEN` | `--listen` | HTTP 模式：监听地址 | `:8080` |
+| `N9E_SESSION_TIMEOUT` | `--session-timeout` | HTTP 模式：空闲会话超时（0 表示不超时） | `0` |
+| `N9E_SHARED` | `--shared` | HTTP 模式：为 true 时启动必须提供 N9E_TOKEN 和 N9E_BASE_URL，并忽略客户端 header | `false` |
 
 ### 工具集选择
 
